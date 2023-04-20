@@ -1,80 +1,79 @@
 import tensorflow as tf
-import wandb
-import numpy as np
-from tensorflow.keras.layers import Input, Dense, Reshape, Flatten, Dropout, LeakyReLU
-from tensorflow.keras.layers import BatchNormalization, Activation, ZeroPadding2D, UpSampling2D, Conv2D
-from tensorflow.keras.models import Sequential, Model, load_model
+from keras.layers import Dense, LeakyReLU, Reshape, Flatten, Input
+from keras.layers import BatchNormalization, Input
+from keras.models import Model
 from tensorflow.keras.optimizers import Adam
+import wandb
 import os
+import numpy as np
 import pickle
 import pretty_midi
 
-cache_folder = r"C:\Users\Pablo\Desktop\Nueva carpeta\Falso_caché"
-matrices_originales = os.path.join(cache_folder, 'cache.pickle')
-with open(matrices_originales, 'rb') as f:
+cache_file = r"C:\Users\Pablo\Desktop\Falso_caché\cache.pickle"
+with open(cache_file, 'rb') as f:
     datos = pickle.load(f)
+    print(datos)
 
+max_values = [11055, 11311, 127, 127, 127]
+wandb.login(key="26ab38e8f6e471ce6662ff95ea15c50993b6d4a1")
+wandb.init(project='GAN_Music_Generation')
 
-def build_generator(latent_dim, input_shape):
-    model = Sequential()
+def load_data(datos):
+    filtered_mats = []
+    max_seq_length = 10000
+    for m in datos:
+        num_rows = m.shape[0]
+        if num_rows <= max_seq_length:
+            # Si la matriz tiene menos filas que el número de columnas deseado, agregar filas de ceros
+            zeros = np.zeros((max_seq_length - num_rows, m.shape[1]), dtype=int)
+            m = np.vstack((m, zeros))
+            filtered_mats.append(m)
 
-    model.add(Dense(128, input_dim=latent_dim))
+    print(filtered_mats)
+    filtered_mats = list(filter(lambda x: len(x) > 0, filtered_mats))
+    filtered_mats = np.concatenate(filtered_mats, axis=0)
+    print('filtradas')
+    norm_mats = filtered_mats/ max_values[:5]
+    norm_mats = np.clip(norm_mats, 0, 1)
+    return norm_mats
+
+# definir la arquitectura del generador
+def make_generator_model(INPUT_SHAPE, LATENT_DIM):
+    model = tf.keras.Sequential()
+    model.add(Dense(500, input_dim=LATENT_DIM))
     model.add(LeakyReLU(alpha=0.2))
     model.add(BatchNormalization(momentum=0.8))
-    model.add(Dense(256))
+    model.add(Dense(1000))
     model.add(LeakyReLU(alpha=0.2))
     model.add(BatchNormalization(momentum=0.8))
-    model.add(Dense(512))
+    model.add(Dense(5000))
     model.add(LeakyReLU(alpha=0.2))
     model.add(BatchNormalization(momentum=0.8))
-    model.add(Dense(np.prod(input_shape), activation='tanh'))
-    model.add(Reshape(input_shape))
+    model.add(Dense(np.prod(INPUT_SHAPE), activation='sigmoid'))
+    model.add(Reshape(INPUT_SHAPE))
 
     model.summary()
 
-    noise = Input(shape=(latent_dim,))
-    note = model(noise)
+    return model
 
-    return Model(noise, note)
-
-
-def build_discriminator(input_shape):
-    model = Sequential()
-
-    model.add(Flatten(input_shape=input_shape))
-    model.add(Dense(512))
+# definir la arquitectura del discriminador
+def make_discriminator_model(INPUT_SHAPE):
+    model = tf.keras.Sequential()
+    model.add(Flatten(input_shape=INPUT_SHAPE))
+    model.add(Dense(5000))
     model.add(LeakyReLU(alpha=0.2))
-    model.add(Dense(256))
+    model.add(Dense(1000))
     model.add(LeakyReLU(alpha=0.2))
     model.add(Dense(1, activation='sigmoid'))
 
     model.summary()
 
-    note = Input(shape=input_shape)
-    validity = model(note)
+    return model
 
-    return Model(note, validity)
-
-
-def load_data(datos):
-    filtered_mats = []
-    max_seq_length = 10000
-    for matrix in datos:
-        if matrix.shape[0] > max_seq_length:
-            continue
-        matriz_vacia = np.zeros((max_seq_length, 5))
-        matriz_vacia[:matrix.shape[0], :matrix.shape[1]] = matrix
-        filtered_mats.append(matriz_vacia)
-
-    filtered_mats = list(filter(lambda x: len(x) > 0, datos))
-    filtered_mats = np.concatenate(filtered_mats, axis=0)
-    print('filtradas')
-    min_val = np.min(filtered_mats)
-    max_val = np.max(filtered_mats)
-    norm_mats = (filtered_mats - min_val) / (max_val - min_val + 1e-7)
-    norm_mats = np.clip(norm_mats, 0, 1)
-    return norm_mats, (min_val, max_val)
-
+# Definir una función para guardar las muestras generadas
+def save_samples(epoch, samples):
+    filename = f'generated_music/sample_epoch{epoch}.csv'
+    np.savetxt(filename, samples, delimiter=',', fmt='%.4f')
 
 def train_epoch(generator, discriminator, dataset, batch_size):
     noise = np.random.normal(0, 1, (batch_size, latent_dim))
@@ -98,18 +97,19 @@ def train_epoch(generator, discriminator, dataset, batch_size):
     return d_loss, g_loss
 
 
-def generate_midi(filename, length, original_range):
-    noise = np.random.normal(0, 1, (1, latent_dim))
+def generate_midi(filename, length):
+    noise = np.random.normal(0, 1, (length, latent_dim))
 
     generated_notes = generator.predict(noise)
     for _ in range(length - 1):
-        noise = np.random.normal(0, 1, (1, latent_dim))
+        noise = np.random.normal(0, 1, (length, latent_dim))
         note = generator.predict(noise)
         generated_notes = np.vstack((generated_notes, note))
 
-    min_val, max_val = original_range
-    generated_notes = generated_notes * (max_val - min_val) + min_val
-    print(max_val, min_val)
+    print(generated_notes)
+
+    generated_notes = generated_notes * max_values[:5]
+    generated_notes = np.round(generated_notes)
 
     print(generated_notes)
 
@@ -134,33 +134,43 @@ def generate_midi(filename, length, original_range):
 
 
 wandb.login(key="26ab38e8f6e471ce6662ff95ea15c50993b6d4a1")
-wandb.init(project="MusikAI_V2")
+wandb.init(project="Prueba_Sony")
 
 latent_dim = 100
-epochs = 1000
-
+epochs = 10000
+num_samples = 10
 input_shape = (5,)
+learning_rate = 0.0001
 
-generator = build_generator(latent_dim, input_shape)
-discriminator = build_discriminator(input_shape)
+generator = make_generator_model(input_shape, latent_dim)
+discriminator = make_discriminator_model(input_shape)
 
 discriminator.compile(loss='binary_crossentropy',
-                      optimizer=Adam(0.0002, 0.5),
+                      optimizer=Adam(learning_rate, 0.5),
                       metrics=['accuracy'])
 
 z = Input(shape=(latent_dim,))
 note = generator(z)
 valid = discriminator(note)
 gan = Model(z, valid)
-gan.compile(loss='binary_crossentropy', optimizer=Adam(0.0002, 0.5))
+gan.compile(loss='binary_crossentropy', optimizer=Adam(learning_rate, 0.5))
 
-dataset, original_range = load_data(datos)
+dataset = load_data(datos)
 print(dataset)
 batch_size = 32
 
 for epoch in range(epochs):
     d_loss, g_loss = train_epoch(generator, discriminator, dataset, batch_size)
 
+    # Generar y guardar muestras
+    if epoch % 50 == 0:
+        noise = tf.random.normal([num_samples, latent_dim])
+        generated_data = generator(noise, training=False)
+        generated_data = generated_data * max_values
+        generated_data = generated_data.numpy().astype(int)
+        save_samples(epoch, generated_data)
+
+    # Registrar métricas en wandb
     wandb.log({'epoch': epoch, 'd_loss': d_loss, 'g_loss': g_loss})
     print(f"Epoch {epoch}: Discriminator loss = {d_loss}, Generator loss = {g_loss}")
 
@@ -168,6 +178,6 @@ generator.save(f"{wandb.run.dir}/generator.h5")
 
 print('generando')
 
-generate_midi(r"\Desktop\cancion_generada.midi", length=64, original_range=original_range)
+generate_midi(r"C:\Users\Pablo\Documents\canción_de_prueba.mid", length=64)
 
 print('Hecho')
