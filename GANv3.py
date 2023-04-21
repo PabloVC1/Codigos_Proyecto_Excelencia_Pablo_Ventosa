@@ -1,7 +1,7 @@
 import tensorflow as tf
 from keras.layers import Dense, LeakyReLU, Reshape, Flatten, Input
 from keras.layers import BatchNormalization, Input
-from keras.models import Model
+from keras.models import Model, load_model
 from tensorflow.keras.optimizers import Adam
 import wandb
 import os
@@ -9,25 +9,30 @@ import numpy as np
 import pickle
 import pretty_midi
 
-cache_file = r"C:\Users\Pablo\Desktop\Falso_caché\cache.pickle"
+cache_file = r"C:\Users\Pablo\Desktop\Falso_caché\Big_Matrices.pickle"
 with open(cache_file, 'rb') as f:
-    datos = pickle.load(f)
-    print(datos)
+    datos = np.array(pickle.load(f))
 
 max_values = [11055, 11311, 127, 127, 127]
-wandb.login(key="26ab38e8f6e471ce6662ff95ea15c50993b6d4a1")
-wandb.init(project='GAN_Music_Generation')
 
-def load_data(datos):
+wandb.login(key="26ab38e8f6e471ce6662ff95ea15c50993b6d4a1")
+wandb.init(project='MusikAI_V4')
+
+def load_data(datos, batch_size):
     filtered_mats = []
     max_seq_length = 10000
-    for m in datos:
-        num_rows = m.shape[0]
-        if num_rows <= max_seq_length:
-            # Si la matriz tiene menos filas que el número de columnas deseado, agregar filas de ceros
-            zeros = np.zeros((max_seq_length - num_rows, m.shape[1]), dtype=int)
-            m = np.vstack((m, zeros))
-            filtered_mats.append(m)
+    for i in range(0, len(datos), batch_size):
+        for m in datos:
+            num_rows = m.shape[0]
+            if num_rows <= max_seq_length:
+                # Si la matriz tiene menos filas que el número de columnas deseado, agregar filas de ceros
+                zeros = np.zeros((max_seq_length - num_rows, m.shape[1]), dtype=int)
+                m = np.concatenate((m, zeros), axis=0)
+                filtered_mats.append(m)
+        batch = np.concatenate(datos[i:i+batch_size], axis=0)
+        filtered_mats.append(batch)
+        print(i)
+    filtered_mats = np.concatenate(filtered_mats, axis=0)
 
     print(filtered_mats)
     filtered_mats = list(filter(lambda x: len(x) > 0, filtered_mats))
@@ -98,17 +103,17 @@ def train_epoch(generator, discriminator, dataset, batch_size):
 
 
 def generate_midi(filename, length):
+    min_note = 0
+    max_note = 127
     noise = np.random.normal(0, 1, (length, latent_dim))
 
     generated_notes = generator.predict(noise)
-    for _ in range(length - 1):
-        noise = np.random.normal(0, 1, (length, latent_dim))
-        note = generator.predict(noise)
-        generated_notes = np.vstack((generated_notes, note))
 
     print(generated_notes)
 
     generated_notes = generated_notes * max_values[:5]
+    generated_notes[:, 4] = (generated_notes[:, 4] - min_note) / (max_note - min_note)
+    generated_notes[:, 4] = generated_notes[:, 4] * 35 + 60
     generated_notes = np.round(generated_notes)
 
     print(generated_notes)
@@ -134,10 +139,10 @@ def generate_midi(filename, length):
 
 
 wandb.login(key="26ab38e8f6e471ce6662ff95ea15c50993b6d4a1")
-wandb.init(project="Prueba_Sony")
+wandb.init(project="MusikAI_V4")
 
 latent_dim = 100
-epochs = 10000
+epochs = 3000
 num_samples = 10
 input_shape = (5,)
 learning_rate = 0.0001
@@ -155,9 +160,9 @@ valid = discriminator(note)
 gan = Model(z, valid)
 gan.compile(loss='binary_crossentropy', optimizer=Adam(learning_rate, 0.5))
 
-dataset = load_data(datos)
+dataset = load_data(datos, batch_size=1000)
 print(dataset)
-batch_size = 32
+batch_size = 100
 
 for epoch in range(epochs):
     d_loss, g_loss = train_epoch(generator, discriminator, dataset, batch_size)
