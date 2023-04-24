@@ -69,6 +69,8 @@ def make_discriminator_model(INPUT_SHAPE):
     model.add(LeakyReLU(alpha=0.2))
     model.add(Dense(1000))
     model.add(LeakyReLU(alpha=0.2))
+    model.add(Dense(500, input_dim=LATENT_DIM))
+    model.add(LeakyReLU(alpha=0.2))
     model.add(Dense(1, activation='sigmoid'))
 
     model.summary()
