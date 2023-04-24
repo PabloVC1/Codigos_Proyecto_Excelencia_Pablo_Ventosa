@@ -56,25 +56,18 @@ def make_generator_model(INPUT_SHAPE, LATENT_DIM):
     model.add(BatchNormalization(momentum=0.8))
     model.add(Dense(np.prod(INPUT_SHAPE), activation='sigmoid'))
     model.add(Reshape(INPUT_SHAPE))
-
-    model.summary()
-
     return model
 
-# definir la arquitectura del discriminador
-def make_discriminator_model(INPUT_SHAPE):
+def make_discriminator_model(INPUT_SHAPE, LATENT_DIM):
     model = tf.keras.Sequential()
     model.add(Flatten(input_shape=INPUT_SHAPE))
     model.add(Dense(5000))
     model.add(LeakyReLU(alpha=0.2))
     model.add(Dense(1000))
     model.add(LeakyReLU(alpha=0.2))
-    model.add(Dense(500, input_dim=LATENT_DIM))
+    model.add(Dense(500))
     model.add(LeakyReLU(alpha=0.2))
     model.add(Dense(1, activation='sigmoid'))
-
-    model.summary()
-
     return model
 
 # Definir una función para guardar las muestras generadas
