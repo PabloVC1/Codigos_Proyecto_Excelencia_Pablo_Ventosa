@@ -1,15 +1,13 @@
 import tensorflow as tf
-from keras.layers import Dense, LeakyReLU, Reshape, Flatten, Input
-from keras.layers import BatchNormalization, Input
-from keras.models import Model, load_model
+from tensorflow.keras.layers import Dense, LeakyReLU, Reshape, Flatten, BatchNormalization, Input
+from tensorflow.keras.models import Model
 from tensorflow.keras.optimizers import Adam
 import wandb
-import os
 import numpy as np
 import pickle
 import pretty_midi
 
-cache_file = r"C:\Users\Pablo\Desktop\Falso_caché\Big_Matrices.pickle"
+cache_file = r"C:\Users\Pablo\Documents\MusikIA\Numpy\midi_matrices.pickle"
 with open(cache_file, 'rb') as f:
     datos = np.array(pickle.load(f))
 
@@ -18,31 +16,13 @@ max_values = [11055, 11311, 127, 127, 127]
 wandb.login(key="26ab38e8f6e471ce6662ff95ea15c50993b6d4a1")
 wandb.init(project='MusikAI_V4')
 
-def load_data(datos, batch_size):
-    filtered_mats = []
-    max_seq_length = 10000
-    for i in range(0, len(datos), batch_size):
-        for m in datos:
-            num_rows = m.shape[0]
-            if num_rows <= max_seq_length:
-                # Si la matriz tiene menos filas que el número de columnas deseado, agregar filas de ceros
-                zeros = np.zeros((max_seq_length - num_rows, m.shape[1]), dtype=int)
-                m = np.concatenate((m, zeros), axis=0)
-                filtered_mats.append(m)
-        batch = np.concatenate(datos[i:i+batch_size], axis=0)
-        filtered_mats.append(batch)
-        print(i)
-    filtered_mats = np.concatenate(filtered_mats, axis=0)
+def load_data(data, batch_size):
+    dataset = tf.data.Dataset.from_tensor_slices(data).shuffle(data.shape[0])
+    dataset = dataset.batch(batch_size, drop_remainder=True)
+    print(f'Dataset completo: {data}')
 
-    print(filtered_mats)
-    filtered_mats = list(filter(lambda x: len(x) > 0, filtered_mats))
-    filtered_mats = np.concatenate(filtered_mats, axis=0)
-    print('filtradas')
-    norm_mats = filtered_mats/ max_values[:5]
-    norm_mats = np.clip(norm_mats, 0, 1)
-    return norm_mats
+    return dataset
 
-# definir la arquitectura del generador
 def make_generator_model(INPUT_SHAPE, LATENT_DIM):
     model = tf.keras.Sequential()
     model.add(Dense(500, input_dim=LATENT_DIM))
@@ -58,7 +38,7 @@ def make_generator_model(INPUT_SHAPE, LATENT_DIM):
     model.add(Reshape(INPUT_SHAPE))
     return model
 
-def make_discriminator_model(INPUT_SHAPE, LATENT_DIM):
+def make_discriminator_model(INPUT_SHAPE):
     model = tf.keras.Sequential()
     model.add(Flatten(input_shape=INPUT_SHAPE))
     model.add(Dense(5000))
@@ -70,32 +50,32 @@ def make_discriminator_model(INPUT_SHAPE, LATENT_DIM):
     model.add(Dense(1, activation='sigmoid'))
     return model
 
-# Definir una función para guardar las muestras generadas
-def save_samples(epoch, samples):
-    filename = f'generated_music/sample_epoch{epoch}.csv'
-    np.savetxt(filename, samples, delimiter=',', fmt='%.4f')
-
 def train_epoch(generator, discriminator, dataset, batch_size):
     noise = np.random.normal(0, 1, (batch_size, latent_dim))
-
     gen_notes = generator.predict(noise)
 
-    idx = np.random.randint(0, dataset.shape[0], batch_size)
-    real_notes = dataset[idx]
+    real_notes = None
+    for batch in dataset:
+        real_notes = batch
+        break
 
-    notes = np.concatenate((gen_notes, real_notes))
-    labels = np.concatenate((np.zeros((batch_size, 1)), np.ones((batch_size, 1))))
+    if real_notes is None:
+        print("No batches found in the dataset.")
+        return None, None
+
+    real_notes = real_notes.numpy()[:batch_size]
+
+    notes = np.concatenate([gen_notes, real_notes], axis=0)
+    labels = np.concatenate([np.zeros((batch_size, 1)), np.ones((batch_size, 1))], axis=0)
 
     d_loss = discriminator.train_on_batch(notes, labels)
 
-    noise = np.random.normal(0, 1, (batch_size, latent_dim))
-
     misleading_targets = np.ones((batch_size, 1))
+    noise = np.random.normal(0, 1, (batch_size, latent_dim))
 
     g_loss = gan.train_on_batch(noise, misleading_targets)
 
     return d_loss, g_loss
-
 
 def generate_midi(filename, length):
     min_note = 0
@@ -137,10 +117,10 @@ wandb.login(key="26ab38e8f6e471ce6662ff95ea15c50993b6d4a1")
 wandb.init(project="MusikAI_V4")
 
 latent_dim = 100
-epochs = 3000
+epochs = 100
 num_samples = 10
-input_shape = (5,)
-learning_rate = 0.0001
+input_shape = (10000, 5)
+learning_rate = 0.001
 
 generator = make_generator_model(input_shape, latent_dim)
 discriminator = make_discriminator_model(input_shape)
@@ -162,17 +142,14 @@ batch_size = 100
 for epoch in range(epochs):
     d_loss, g_loss = train_epoch(generator, discriminator, dataset, batch_size)
 
-    # Generar y guardar muestras
     if epoch % 50 == 0:
-        noise = tf.random.normal([num_samples, latent_dim])
-        generated_data = generator(noise, training=False)
+        noise = np.random.normal(0, 1, (1, latent_dim))
+        generated_data = generator.predict(noise)
         generated_data = generated_data * max_values
-        generated_data = generated_data.numpy().astype(int)
-        save_samples(epoch, generated_data)
+        generated_data = generated_data.astype(int)
 
-    # Registrar métricas en wandb
-    wandb.log({'epoch': epoch, 'd_loss': d_loss, 'g_loss': g_loss})
-    print(f"Epoch {epoch}: Discriminator loss = {d_loss}, Generator loss = {g_loss}")
+    wandb.log({'epoch': epoch, 'd_loss': d_loss[0], 'g_loss': g_loss})
+    print(f"Epoch {epoch}: Discriminator loss = {d_loss[0]}, Generator loss = {g_loss}")
 
 generator.save(f"{wandb.run.dir}/generator.h5")
 
