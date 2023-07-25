@@ -7,11 +7,11 @@ import numpy as np
 import pickle
 import pretty_midi
 
-cache_file = r"C:\Users\Pablo\Documents\MusikIA\Numpy\midi_matrices.pickle"
+cache_file = r"C:\Users\Pablo\Documents\MusikIA\Numpy\matrices10000.pickle"
 with open(cache_file, 'rb') as f:
     datos = np.array(pickle.load(f))
 
-max_values = [11055, 11311, 127, 127, 127]
+max_values = np.array([2,1170,127,127,127])
 
 wandb.login(key="26ab38e8f6e471ce6662ff95ea15c50993b6d4a1")
 wandb.init(project='MusikAI_V4')
@@ -25,13 +25,15 @@ def load_data(data, batch_size):
 
 def make_generator_model(INPUT_SHAPE, LATENT_DIM):
     model = tf.keras.Sequential()
-    model.add(Dense(500, input_dim=LATENT_DIM))
+    model.add(Dense(64, input_dim=LATENT_DIM))
     model.add(LeakyReLU(alpha=0.2))
     model.add(BatchNormalization(momentum=0.8))
-    model.add(Dense(1000))
+    model.add(Dense(128))
+    model.add(BatchNormalization(momentum=0.8))
+    model.add(Dense(256))
     model.add(LeakyReLU(alpha=0.2))
     model.add(BatchNormalization(momentum=0.8))
-    model.add(Dense(5000))
+    model.add(Dense(512))
     model.add(LeakyReLU(alpha=0.2))
     model.add(BatchNormalization(momentum=0.8))
     model.add(Dense(np.prod(INPUT_SHAPE), activation='sigmoid'))
@@ -41,11 +43,13 @@ def make_generator_model(INPUT_SHAPE, LATENT_DIM):
 def make_discriminator_model(INPUT_SHAPE):
     model = tf.keras.Sequential()
     model.add(Flatten(input_shape=INPUT_SHAPE))
-    model.add(Dense(5000))
+    model.add(Dense(512))
     model.add(LeakyReLU(alpha=0.2))
-    model.add(Dense(1000))
+    model.add(Dense(256))
     model.add(LeakyReLU(alpha=0.2))
-    model.add(Dense(500))
+    model.add(Dense(128))
+    model.add(BatchNormalization(momentum=0.8))
+    model.add(Dense(64))
     model.add(LeakyReLU(alpha=0.2))
     model.add(Dense(1, activation='sigmoid'))
     return model
@@ -81,6 +85,7 @@ def generate_midi(filename, length):
     min_note = 0
     max_note = 127
     noise = np.random.normal(0, 1, (length, latent_dim))
+    print(noise)
 
     generated_notes = generator.predict(noise)
 
@@ -97,16 +102,21 @@ def generate_midi(filename, length):
     pm_instrument = pretty_midi.Instrument(program=0)
 
     for note in generated_notes:
-        pitch = int(note[2])
-        program = int(note[4])
-        pm_note = pretty_midi.Note(
-            velocity=int(note[3]),
-            pitch=pitch,
-            start=note[0],
-            end=note[1]
-        )
-        pm_instrument.notes.append(pm_note)
-        pm_instrument.program = program
+        try:
+            pitch = int(note[2])
+            program = int(note[4])
+            pm_note = pretty_midi.Note(
+                velocity=int(note[3]),
+                pitch=pitch,
+                start=note[0],
+                end=note[1] + note[0]
+            )
+
+            pm_instrument.notes.append(pm_note)
+            pm_instrument.program = program
+            pm_instrument.append(pm_instrument)
+        except Exception as e:
+            print(f"Error al procesar la nota: {note}, {e}")
 
     pm.instruments.append(pm_instrument)
 
