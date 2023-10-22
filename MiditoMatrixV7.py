@@ -51,9 +51,12 @@ def process_single_midi_file(file_path):
                 for col_index, value in enumerate(row):
                     if value > max_values[col_index]:
                         max_values[col_index] = value'''
+          
             song = song / max_values[:5]
             song = (song * 2) - 1
             notes_per_song.append(num_rows)
+            zeros = np.zeros((max_notes - num_rows, song.shape[1]), dtype=int)
+            song = np.vstack((song, zeros)
             print(f'{file_path} completado')
             return song
 
