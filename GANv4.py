@@ -6,9 +6,7 @@ import pretty_midi
 
 n = 0.3
 resolution = 480
-cache_file = r"C:\Users\Pablo\Desktop\Códigos Proyecto de Excelencia\datos_0.pickle"
-with open(cache_file, 'rb') as f:
-    datos = np.array(pickle.load(f))
+datos = np.load("midi_matrices.npy")
 
 max_values = np.array([5306767, 561728, 127])
 
