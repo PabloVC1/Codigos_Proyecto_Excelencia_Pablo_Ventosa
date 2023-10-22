@@ -79,7 +79,6 @@ def train_epoch(generator, discriminator, gan, dataset, batch_size):
     misleading_targets = np.ones((batch_size, 1))
     noise = np.random.normal(0, 1, (batch_size, latent_dim))
 
-    # Train the generator and use generator_loss as the loss function
     g_loss = gan.train_on_batch(noise, misleading_targets)
 
     return d_loss, g_loss
