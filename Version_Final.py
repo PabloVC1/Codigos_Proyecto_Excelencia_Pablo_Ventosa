@@ -117,18 +117,14 @@ def change_matrix(matrix, progresion_acordes, compas_inicial=0):
         notas_escala = notas_de_escala_para_acorde(acorde, notas_midi, notas_progresion)
         for fila in matrix:
             if fila[0] < compas + 2:
-                # Calcular el índice asegurando que esté en el rango permitido
                 indice = int(min(1.0, max(0.0, fila[2])) * (len(notas_escala) - 1))
                 fila[2] = round(notas_escala[indice])
             else:
-                break  # Pasar al siguiente acorde si la primera columna es mayor o igual al compás actual + 2
+                break
 
         compas += 2
-
-    # Eliminar las últimas 12 filas
     matrix = matrix[:-12]
 
-    # Agregar nuevas filas generadas por crear_acordes_matrices(notas_progresion)
     nuevas_filas = crear_acordes_matrices(notas_progresion)
     matrix = np.vstack([matrix, nuevas_filas])
 
